@@ -1,0 +1,1 @@
+CREATE OR REPLACE TABLE rrhh_final AS SELECT * FROM rrhh_corregidos;

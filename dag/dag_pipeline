@@ -1,0 +1,83 @@
+import pandas as pd 
+import duckdb
+from pathlib import Path
+import datetime as datetime
+from airflow.sdk import task, dag
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"/ "rrhh.sqlite"
+OUTPUT_DIR = BASE_DIR / "outputs"
+SQL_DIR = BASE_DIR / "sql"
+
+def read_sql(fielname: str):
+    try:
+        path = SQL_DIR / fielname
+        return path.read_text(encoding="utf-8")
+    except Exception as e:
+        print ("Error al leer el sql: ",str(e))
+        return None
+
+def count(table_name: str,con):
+    try:
+        return con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()
+    except Exception as e:
+        print(f"Hubo un error al ejecutar el count ",str(e))
+
+
+@task
+def extract():
+    conn = duckdb.connect("rrhh.duckdb")
+    
+    conn.execute(f"ATTACH OR REPLACE '{str(DATA_DIR)}' AS sqlite_conn (TYPE SQLITE, READ_ONLY);")
+
+    print("####### Extraccion #######")
+
+    conn.execute(read_sql("extract.sql"))
+
+    print(f"Valores Extraidos: ",count(table_name="rrhh_raw",con=conn))
+    
+
+@task
+def validate():
+    conn = duckdb.connect("rrhh.duckdb")
+    print("####### Validacion #######")
+
+    conn.execute(read_sql("validation.sql"))
+
+    print(f"Valores Validados: ",count(table_name="rrhh_validos",con=conn))
+    print(f"Valores Invalidos: ",count(table_name="rrhh_invalidos",con=conn))
+
+@task
+def transform():
+    conn = duckdb.connect("rrhh.duckdb")
+    print("####### Transformacion #######")
+
+    conn.execute(read_sql("transform.sql"))
+
+
+    print(f"Valores Trnasformados: ",count("rrhh_transformados",con=conn))
+
+@task
+def export():
+    conn = duckdb.connect("rrhh.duckdb")
+    print("####### Carga #######")
+
+    try:
+        df_rrhh = conn.execute(read_sql("export.sql")).df()
+    finally:
+        conn.unregister("empleados_finales")
+
+    print("Valores Exportados:", count(table_name="rrhh_final", con=conn))
+
+    df_rrhh.to_parquet(str(OUTPUT_DIR / "rrhh_final.parquet"))
+
+@dag(
+        dag_id="rrhh_dag",
+        start_date=datetime(2026, 11, 2),
+        schedule="0 2 * * * ",
+)
+def pipeline():
+    extract()>>validate()>>transform()>>export()
+
+
+pipeline()
