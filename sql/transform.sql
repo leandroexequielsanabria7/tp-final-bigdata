@@ -1,20 +1,4 @@
--- =====================================================================
--- transform.sql  (DuckDB)
--- Equivalente SQL de transform.py
--- Entrada : rrhh_validos, rrhh_rechazados
--- Salida  : rrhh_transformados (rechazados corregidos)
---           rrhh_corregidos    (validos + transformados, sin duplicados)
--- =====================================================================
 
-
--- ---------------------------------------------------------------------
--- 1) Rechazados transformados -> rrhh_transformados
---    - nombre/apellido: trim + capitalize
---    - email nulo: nombre.apellido<numero>@tecnosur.com
---    - departamento nulo: se deduce del cargo
---    - salario <= 0: valor absoluto
---    - se elimina motivo_rechazo
--- ---------------------------------------------------------------------
 CREATE OR REPLACE TABLE rrhh_transformados AS
 WITH base AS (
     SELECT
@@ -26,7 +10,7 @@ WITH base AS (
 )
 SELECT
     * REPLACE (
-        -- completar_email
+        
         COALESCE(
             email,
             lower(trim(nombre)) || '.' || lower(trim(apellido))
@@ -34,7 +18,6 @@ SELECT
             || '@tecnosur.com'
         ) AS email,
 
-        -- completar_departamentos
         COALESCE(
             departamento,
             CASE lower(trim(cargo))
@@ -50,7 +33,7 @@ SELECT
             END
         ) AS departamento,
 
-        -- corregir_salarios
+        
         CASE
             WHEN CAST(salario AS DOUBLE) <= 0 THEN abs(CAST(salario AS DOUBLE))
             ELSE CAST(salario AS DOUBLE)
@@ -59,10 +42,6 @@ SELECT
 FROM base;
 
 
--- ---------------------------------------------------------------------
--- 2) Unión validos + transformados (equivale a pd.concat)
---    Se guarda el orden original para respetar keep='first'
--- ---------------------------------------------------------------------
 CREATE OR REPLACE TEMP TABLE rrhh_union AS
 SELECT
     * REPLACE (
@@ -77,19 +56,14 @@ SELECT *, 2 AS _origen, rowid AS _fila
 FROM rrhh_transformados;
 
 
--- ---------------------------------------------------------------------
--- 3) Cantidad de filas duplicadas completas (df.duplicated().sum())
--- ---------------------------------------------------------------------
+
 SELECT
     'Valores Duplicados eliminados' AS mensaje,
     (SELECT count(*) FROM rrhh_union)
   - (SELECT count(*) FROM (SELECT DISTINCT * EXCLUDE (_origen, _fila) FROM rrhh_union)) AS cantidad;
 
 
--- ---------------------------------------------------------------------
--- 4) Eliminar duplicados por id_empleado, conservando el primero
---    (drop_duplicates(subset=['id_empleado']))
--- ---------------------------------------------------------------------
+
 CREATE OR REPLACE TABLE rrhh_corregidos AS
 SELECT * EXCLUDE (_origen, _fila)
 FROM rrhh_union
